@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Review {{ business.name }}</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      
+      body {
+        font-family: Arial, sans-serif;
+      }
+      
+      .star {
+        transition: all 0.2s ease;
+        cursor: pointer;
+      }
+      
+      .star:hover {
+        transform: scale(1.2);
+      }
+      
+      .suggestion-slider {
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        scrollbar-width: thin;
+        padding-bottom: 12px;
+      }
+      
+      .suggestion-card {
+        min-width: 85%;
+        scroll-snap-align: start;
+        transition: all 0.2s ease;
+      }
+      
+      .suggestion-card:hover {
+        border-color: #2563eb;
+        background: #eff6ff;
+        transform: translateY(-3px);
+      }
+      
+      .fade-in {
+        animation: fadeIn 0.3s ease;
+      }
+      
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      
+      @media (min-width: 640px) {
+        .suggestion-card {
+          min-width: 75%;
+        }
+      }
+    </style>
+  </head>
+
+  <body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-md rounded-2xl shadow-xl p-6">
+      <!-- BUSINESS HEADER -->
+
+      <div class="text-center mb-6">
+        {% if business.logo %}
+          <img src="{{ business.logo.url }}" alt="{{ business.name }}" class="w-20 h-20 rounded-full object-cover mx-auto mb-3" />
+        {% else %}
+          <div class="w-20 h-20 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-3">
+            <span class="text-3xl font-bold text-blue-600">{{ business.name|first|upper }}</span>
+          </div>
+        {% endif %}
+
+        <h1 class="text-2xl font-bold text-gray-800">{{ business.name }}</h1>
+
+        <p class="text-gray-500 mt-2">We value your feedback!</p>
+      </div>
+
+      <div class="border-t pt-6">
+        <!-- STAR RATING -->
+
+        <h2 class="text-center text-lg font-semibold mb-4">How was your experience?</h2>
+
+        <div class="flex justify-center gap-3 mb-3" id="starContainer">
+          {% for star in '12345'|make_list %}
+            <button type="button" class="star text-4xl text-gray-300" data-rating="{{ star }}" onclick="selectRating({{ star }})" aria-label="{{ star }} star rating">★</button>
+          {% endfor %}
+        </div>
+
+        <p id="ratingLabel" class="text-center text-sm font-medium text-gray-500 mb-6">Select your rating</p>
+
+        <!-- AI LOADING -->
+
+        <div id="loadingSection" class="hidden mb-6 text-center">
+          <div class="flex justify-center mb-3">
+            <div class="animate-spin rounded-full h-9 w-9 border-4 border-blue-100 border-t-blue-600"></div>
+          </div>
+
+          <p class="font-semibold text-gray-700">Creating your review suggestions...</p>
+
+          <p class="text-xs text-gray-400 mt-2">Please wait a moment.</p>
+        </div>
+
+        <!-- ERROR MESSAGE -->
+
+        <div id="errorSection" class="hidden bg-red-50 text-red-600 rounded-xl p-3 text-sm text-center mb-5"></div>
+
+        <!-- REVIEW SUGGESTIONS -->
+
+        <div id="suggestionSection" class="hidden mb-6">
+          <h3 class="font-semibold text-gray-800 mb-1">Choose your review</h3>
+
+          <p class="text-xs text-gray-500 mb-4">Choose a suggestion that genuinely reflects your experience. You can edit it before publishing.</p>
+
+          <div id="suggestionSlider" class="suggestion-slider"></div>
+
+          <button type="button" id="regenerateButton" onclick="generateSuggestions()" class="w-full border border-blue-600 text-blue-600 py-3 rounded-xl font-semibold mt-3 hover:bg-blue-50 transition">↻ Generate 5 More Suggestions</button>
+        </div>
+
+        <!-- SELECTED REVIEW -->
+
+        <div id="reviewSection" class="hidden">
+          <div class="flex justify-between items-center mb-2">
+            <label class="font-semibold text-sm text-gray-800">Your review</label>
+
+            <button type="button" onclick="backToSuggestions()" class="text-sm text-blue-600 font-semibold">Change review</button>
+          </div>
+
+          <textarea id="reviewText" rows="5" maxlength="5000" class="w-full border border-gray-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-500 text-sm leading-relaxed" placeholder="Edit your review..."></textarea>
+
+          <button type="button" id="googleButton" onclick="continueToGoogle()" class="w-full bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 transition mt-3">Continue to Google Reviews</button>
+
+          <p class="text-xs text-gray-500 text-center mt-3">Your review will be copied. Paste it into Google's review form and submit it yourself.</p>
+        </div>
+
+        <!-- FOOTER -->
+
+        <div class="text-center mt-6">
+          <p class="text-xs text-gray-400">Thank you for taking the time to share your feedback.</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // =====================================
+      // CONFIGURATION
+      // =====================================
+      
+      const googleReviewUrl = '{{ business.google_review_url|escapejs }}'
+      
+      const generateUrl = "{% url 'generate_ai_reviews' business.slug %}"
+      
+      // CHANGE 1: new URL for saving the selected review
+      const selectUrl = "{% url 'select_review' business.slug %}"
+      
+      // =====================================
+      // STATE
+      // =====================================
+      
+      let selectedRating = 0
+      
+      let currentActivityId = null
+      
+      let isGenerating = false
+      
+      let suggestionHistory = []
+      
+      // CHANGE 2: remembers which AI suggestion the customer picked
+      let selectedSuggestion = ''
+      
+      const ratingLabels = {
+        1: '😞 Very Poor',
+      
+        2: '🙁 Needs Improvement',
+      
+        3: '😐 Average',
+      
+        4: '😊 Good Experience',
+      
+        5: '🤩 Excellent Experience!'
+      }
+      
+      // =====================================
+      // ELEMENTS
+      // =====================================
+      
+      const starContainer = document.getElementById('starContainer')
+      
+      const slider = document.getElementById('suggestionSlider')
+      
+      const suggestionSection = document.getElementById('suggestionSection')
+      
+      const reviewSection = document.getElementById('reviewSection')
+      
+      const loadingSection = document.getElementById('loadingSection')
+      
+      const errorSection = document.getElementById('errorSection')
+      
+      const regenerateButton = document.getElementById('regenerateButton')
+      
+      const googleButton = document.getElementById('googleButton')
+      
+      // =====================================
+      // STAR ANIMATION
+      // =====================================
+      
+      function updateStars(rating) {
+        document.querySelectorAll('.star').forEach((star) => {
+          const value = Number(star.dataset.rating)
+      
+          star.classList.toggle('text-yellow-400', value <= rating)
+      
+          star.classList.toggle('text-gray-300', value > rating)
+        })
+      }
+      
+      // =====================================
+      // STAR HOVER
+      // =====================================
+      
+      document.querySelectorAll('.star').forEach((star) => {
+        star.addEventListener('mouseenter', () => {
+          const rating = Number(star.dataset.rating)
+      
+          updateStars(rating)
+      
+          document.getElementById('ratingLabel').textContent = ratingLabels[rating]
+        })
+      })
+      
+      // =====================================
+      // STAR MOUSE LEAVE
+      // =====================================
+      
+      starContainer.addEventListener('mouseleave', () => {
+        updateStars(selectedRating)
+      
+        document.getElementById('ratingLabel').textContent = selectedRating ? ratingLabels[selectedRating] : 'Select your rating'
+      })
+      
+      // =====================================
+      // SELECT RATING
+      // =====================================
+      
+      function selectRating(rating) {
+        if (isGenerating) return
+      
+        selectedRating = Number(rating)
+      
+        updateStars(selectedRating)
+      
+        document.getElementById('ratingLabel').textContent = ratingLabels[selectedRating]
+      
+        // Reset previous review state
+      
+        currentActivityId = null
+      
+        suggestionHistory = []
+      
+        selectedSuggestion = '' // CHANGE 3: reset on new rating
+      
+        slider.innerHTML = ''
+      
+        suggestionSection.classList.add('hidden')
+      
+        reviewSection.classList.add('hidden')
+      
+        errorSection.classList.add('hidden')
+      
+        // Generate suggestions automatically
+      
+        generateSuggestions()
+      }
+      
+      // =====================================
+      // GENERATE AI SUGGESTIONS
+      // =====================================
+      
+      async function generateSuggestions() {
+        if (!selectedRating || isGenerating) return
+      
+        isGenerating = true
+      
+        errorSection.classList.add('hidden')
+      
+        suggestionSection.classList.add('hidden')
+      
+        reviewSection.classList.add('hidden')
+      
+        loadingSection.classList.remove('hidden')
+      
+        regenerateButton.disabled = true
+      
+        regenerateButton.textContent = 'Generating...'
+      
+        try {
+          const formData = new FormData()
+      
+          formData.append('rating', selectedRating)
+      
+          // CHANGE 4: send already-shown suggestions so they are not repeated
+          suggestionHistory.forEach((s) => formData.append('previous', s))
+      
+          const response = await fetch(generateUrl, {
+            method: 'POST',
+      
+            headers: {
+              'X-CSRFToken': getCookie('csrftoken')
+            },
+      
+            body: formData
+          })
+      
+          const data = await response.json()
+      
+          if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Unable to generate suggestions.')
+          }
+      
+          // CHANGE 5: accept 1 or more (saved pool may return fewer than 5)
+          if (!Array.isArray(data.suggestions) || data.suggestions.length < 1) {
+            throw new Error('No suggestions available. Please try again.')
+          }
+      
+          currentActivityId = data.activity_id
+      
+          // CHANGE 6: add to history instead of replacing it
+          suggestionHistory = suggestionHistory.concat(data.suggestions)
+      
+          renderSuggestions(data.suggestions)
+      
+          loadingSection.classList.add('hidden')
+      
+          suggestionSection.classList.remove('hidden')
+      
+          suggestionSection.classList.add('fade-in')
+      
+          suggestionSection.scrollIntoView({
+            behavior: 'smooth',
+      
+            block: 'center'
+          })
+        } catch (error) {
+          loadingSection.classList.add('hidden')
+      
+          errorSection.textContent = error.message || 'Something went wrong.'
+      
+          errorSection.classList.remove('hidden')
+      
+          // Allow retry
+      
+          regenerateButton.disabled = false
+        } finally {
+          isGenerating = false
+      
+          regenerateButton.disabled = false
+      
+          regenerateButton.textContent = '↻ Generate 5 More Suggestions'
+        }
+      }
+      
+      // =====================================
+      // RENDER SUGGESTIONS
+      // =====================================
+      
+      function renderSuggestions(suggestions) {
+        slider.innerHTML = ''
+      
+        suggestions.forEach((review, index) => {
+          const card = document.createElement('button')
+      
+          card.type = 'button'
+      
+          card.className = 'suggestion-card text-left bg-white border border-gray-200 rounded-xl p-4 shadow-sm fade-in'
+      
+          const title = document.createElement('span')
+      
+          title.className = 'block text-xs font-bold text-blue-600 mb-2'
+      
+          title.textContent = 'AI Suggestion ' + (index + 1)
+      
+          const content = document.createElement('span')
+      
+          content.className = 'block text-sm text-gray-700 leading-relaxed'
+      
+          content.textContent = review
+      
+          const action = document.createElement('span')
+      
+          action.className = 'block text-xs font-semibold text-blue-600 mt-4'
+      
+          action.textContent = 'Use this review →'
+      
+          card.appendChild(title)
+      
+          card.appendChild(content)
+      
+          card.appendChild(action)
+      
+          card.addEventListener('click', () => {
+            selectSuggestion(review)
+          })
+      
+          slider.appendChild(card)
+        })
+      
+        slider.scrollLeft = 0
+      }
+      
+      // =====================================
+      // SELECT REVIEW
+      // =====================================
+      
+      function selectSuggestion(review) {
+        selectedSuggestion = review // CHANGE 7: remember the original AI text
+      
+        document.getElementById('reviewText').value = review
+      
+        suggestionSection.classList.add('hidden')
+      
+        reviewSection.classList.remove('hidden')
+      
+        reviewSection.classList.add('fade-in')
+      
+        reviewSection.scrollIntoView({
+          behavior: 'smooth',
+      
+          block: 'center'
+        })
+      }
+      
+      // =====================================
+      // BACK TO SUGGESTIONS
+      // =====================================
+      
+      function backToSuggestions() {
+        reviewSection.classList.add('hidden')
+      
+        suggestionSection.classList.remove('hidden')
+      
+        suggestionSection.scrollIntoView({
+          behavior: 'smooth',
+      
+          block: 'center'
+        })
+      }
+      
+      // =====================================
+      // GOOGLE REVIEW REDIRECT
+      // =====================================
+      
+      async function continueToGoogle() {
+        const review = document.getElementById('reviewText').value.trim()
+      
+        if (!review) {
+          alert('Please select or write a review first.')
+      
+          return
+        }
+      
+        if (review.length > 5000) {
+          alert('Your review is too long.')
+      
+          return
+        }
+      
+        // CHANGE 8: save the chosen review (do NOT await, so the popup is not blocked)
+        fetch(selectUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+          },
+          body: JSON.stringify({
+            activity_id: currentActivityId,
+            review: review,
+            suggestion: selectedSuggestion
+          })
+        }).catch(() => {})
+      
+        googleButton.disabled = true
+      
+        googleButton.textContent = 'Opening Google...'
+      
+        // Open during the user click to avoid popup blockers
+      
+        const googleWindow = window.open(googleReviewUrl, '_blank')
+      
+        try {
+          await navigator.clipboard.writeText(review)
+      
+          alert("Your review has been copied! Paste it into Google's review form and submit it yourself.")
+        } catch (error) {
+          alert('Could not copy automatically. Please copy your review manually.')
+        }
+      
+        if (!googleWindow) {
+          alert('Google could not open. Please allow pop-ups and try again.')
+        }
+      
+        googleButton.disabled = false
+      
+        googleButton.textContent = 'Continue to Google Reviews'
+      }
+      
+      // =====================================
+      // CSRF COOKIE
+      // =====================================
+      
+      function getCookie(name) {
+        let cookieValue = null
+      
+        if (document.cookie && document.cookie !== '') {
+          const cookies = document.cookie.split(';')
+      
+          for (let cookie of cookies) {
+            cookie = cookie.trim()
+      
+            if (cookie.startsWith(name + '=')) {
+              cookieValue = decodeURIComponent(cookie.substring(name.length + 1))
+      
+              break
+            }
+          }
+        }
+      
+        return cookieValue
+      }
+    </script>
+  </body>
+</html>
