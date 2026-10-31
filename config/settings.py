@@ -37,7 +37,7 @@ DEBUG = os.getenv('DEBUG')
 
 ALLOWED_HOSTS = os.environ.get(
     'ALLOWED_HOSTS',
-    # 'tq-qr-reviewer.onrender.com,localhost,127.0.0.1'
+    'tq-qr-reviewer.onrender.com,localhost,127.0.0.1'
 ).split(',')
 
 # Application definition
