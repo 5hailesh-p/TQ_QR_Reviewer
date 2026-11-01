@@ -34,8 +34,9 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG')
+# DEBUG = True
 
-ALLOWED_HOSTS = os.environ.get(
+ALLOWED_HOSTS = os.getenv(
     'ALLOWED_HOSTS',
     'tq-qr-reviewer.onrender.com,localhost,127.0.0.1'
 ).split(',')
@@ -53,6 +54,8 @@ INSTALLED_APPS = [
     'config',
     'reviews',
     'businesses',
+    # for supabase s3 
+    "storages",
 
 ]
 
@@ -147,26 +150,71 @@ USE_I18N = True
 
 USE_TZ = True
 
+# ==============================
+# MEDIA STORAGE
+# ==============================
+
+if not DEBUG:
+    # Production: Supabase Storage
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3.S3Storage",
+            "OPTIONS": {
+                "access_key": os.getenv("SUPABASE_S3_ACCESS_KEY"),
+                "secret_key": os.getenv("SUPABASE_S3_SECRET_KEY"),
+
+                "bucket_name": os.getenv("SUPABASE_S3_BUCKET_NAME"),
+
+                "endpoint_url": os.getenv("SUPABASE_S3_ENDPOINT"),
+                "region_name": os.getenv("SUPABASE_S3_REGION"),
+
+                "addressing_style": "path",
+                "querystring_auth": False,
+                "file_overwrite": False,
+            },
+        },
+
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+
+    # Public Supabase media URL
+    SUPABASE_PUBLIC_URL = (
+        os.getenv("SUPABASE_S3_ENDPOINT")
+        .replace("/storage/v1/s3", "/storage/v1/object/public")
+    )
+
+    MEDIA_URL = (
+        f"{SUPABASE_PUBLIC_URL}/"
+        f"{os.getenv('SUPABASE_S3_BUCKET_NAME')}/"
+    )
+
+else:
+    # Development: Local media storage
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        },
+    }
+
+    MEDIA_URL = "/media/"
+    MEDIA_ROOT = BASE_DIR / "media"
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
-STATIC_URL = '/static/'
 
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+# ==============================
+# STATIC FILES
+# ==============================
 
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-
-STORAGES = {
-    "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
-    },
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    },
-}
-
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
